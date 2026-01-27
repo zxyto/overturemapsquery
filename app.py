@@ -60,6 +60,10 @@ if 'pending_filter_change' not in st.session_state:
 if 'confirm_clear_results' not in st.session_state:
     st.session_state.confirm_clear_results = False
 
+# Export dialog tracking
+if 'show_export_dialog' not in st.session_state:
+    st.session_state.show_export_dialog = False
+
 
 def render_header():
     """Render application header"""
@@ -519,8 +523,15 @@ def render_results(df):
 
     st.divider()
 
-    # Data table
-    st.subheader("Results Table")
+    # Data table with export button
+    col_table1, col_table2 = st.columns([3, 1])
+    with col_table1:
+        st.subheader("Results Table")
+    with col_table2:
+        st.write("")  # Spacer for alignment
+        if st.button("📥 Export Data", type="primary", width="stretch", key="export_btn_top"):
+            st.session_state.show_export_dialog = True
+
     st.dataframe(
         df,
         use_container_width=True,
@@ -822,66 +833,63 @@ def render_map(df):
     st_folium(m, width=None, height=600, returned_objects=[])
 
 
-def render_export_section(df):
+@st.dialog("Export Data")
+def show_export_dialog(df):
     """
-    Render export controls
+    Modal dialog for exporting data
 
     Args:
         df (pd.DataFrame): Data to export
     """
+    st.write(f"**Export {len(df):,} results to file**")
     st.divider()
-    st.subheader("Export Results")
 
-    if df is None or df.empty:
-        st.info("No data to export. Execute a query first.")
-        return
+    # Format selection
+    export_format = st.selectbox(
+        "Format",
+        options=ExporterFactory.get_supported_formats(),
+        format_func=lambda x: x.upper(),
+        help="Choose export format",
+        key="export_format_select"
+    )
 
-    col1, col2, col3 = st.columns([2, 2, 1])
+    # Filename input
+    filename_base = st.text_input(
+        "Filename (without extension)",
+        value="overture_places_export",
+        help="Extension will be added automatically",
+        key="export_filename_input"
+    )
 
-    with col1:
-        export_format = st.selectbox(
-            "Export Format",
-            options=ExporterFactory.get_supported_formats(),
-            format_func=lambda x: x.upper(),
-            help="Choose export format"
-        )
-
-    with col2:
-        filename_base = st.text_input(
-            "Filename",
-            value="overture_places_export",
-            help="Base filename (extension added automatically)"
-        )
-
-    with col3:
-        st.write("")  # Spacer
-        st.write("")  # Spacer
+    st.divider()
 
     # Export button
-    if st.button("Download Export", type="primary", use_container_width=True):
-        try:
-            with st.status(f"Preparing {export_format.upper()} export...", expanded=True) as status:
-                st.write(f"⏳ Converting {len(df):,} rows to {export_format.upper()} format...")
+    col_exp1, col_exp2 = st.columns([1, 1])
+    with col_exp1:
+        if st.button("Cancel", width="stretch", key="export_cancel"):
+            st.session_state.show_export_dialog = False
+            st.rerun()
 
-                buffer, mime_type, extension = export_dataframe(df, export_format)
-                filename = f"{filename_base}.{extension}"
+    with col_exp2:
+        if st.button("Export", type="primary", width="stretch", key="export_confirm"):
+            try:
+                with st.spinner(f"Preparing {export_format.upper()} export..."):
+                    buffer, mime_type, extension = export_dataframe(df, export_format)
+                    filename = f"{filename_base}.{extension}"
+                    file_size_kb = len(buffer.getvalue()) / 1024
 
-                file_size_kb = len(buffer.getvalue()) / 1024
-                st.write(f"✓ Export complete: {file_size_kb:.1f} KB")
-
-                status.update(label=f"✅ Export ready! ({len(df):,} rows, {file_size_kb:.1f} KB)", state="complete")
+                st.success(f"✅ Export ready! ({len(df):,} rows, {file_size_kb:.1f} KB)")
 
                 st.download_button(
                     label=f"📥 Download {filename}",
                     data=buffer.getvalue(),
                     file_name=filename,
                     mime=mime_type,
-                    use_container_width=True
+                    width="stretch",
+                    type="primary"
                 )
-
-                st.success(f"Export ready! ({len(df):,} rows)")
-        except Exception as e:
-            st.error(f"Export failed: {str(e)}")
+            except Exception as e:
+                st.error(f"Export failed: {str(e)}")
 
 
 def main():
@@ -1134,7 +1142,10 @@ def main():
     # Display results
     if st.session_state.query_executed and st.session_state.query_results is not None:
         render_results(st.session_state.query_results)
-        render_export_section(st.session_state.query_results)
+
+        # Show export dialog if triggered
+        if st.session_state.show_export_dialog:
+            show_export_dialog(st.session_state.query_results)
     else:
         # Show map search interface or welcome message
         if params['filter_type'] == "Map Search":
