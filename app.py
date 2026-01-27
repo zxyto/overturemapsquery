@@ -998,26 +998,31 @@ def main():
             elapsed = time.time() - st.session_state.bg_task['start_time']
             current_status = st.session_state.bg_task['status']
 
-            # Use st.status for better update handling (reduces flickering)
-            with st.status(f"🔄 Query Running ({elapsed:.1f}s)", expanded=True):
-                # Progress bar
-                progress_value = min(elapsed / 60.0, 0.95)
-                st.progress(progress_value)
+            # Use st.spinner for smoother updates (less jarring than status widget)
+            with st.spinner(f"🔄 Query Running... {elapsed:.0f}s elapsed"):
+                # Small sleep to show spinner
+                time.sleep(0.1)
 
-                # Status message
-                st.write(f"**Status:** {current_status}")
+            # Show minimalist progress info
+            col_prog1, col_prog2 = st.columns([3, 1])
+            with col_prog1:
+                st.info(f"**{current_status}**")
+            with col_prog2:
+                st.metric("Elapsed", f"{elapsed:.0f}s")
 
-                # Show query if available
-                if st.session_state.bg_task.get('query'):
-                    with st.expander("📋 View SQL Query"):
-                        st.code(st.session_state.bg_task['query'], language="sql")
+            # Progress bar
+            progress_value = min(elapsed / 60.0, 0.95)
+            st.progress(progress_value)
 
-                st.caption("💡 Updates every 2 seconds. Click cancel button below to stop.")
+            # Show query if available (collapsed by default to reduce redraw)
+            if st.session_state.bg_task.get('query'):
+                with st.expander("📋 View SQL Query"):
+                    st.code(st.session_state.bg_task['query'], language="sql")
 
-            # Cancel button (outside status widget)
+            # Cancel button
             col_cancel1, col_cancel2, col_cancel3 = st.columns([1, 1, 1])
             with col_cancel2:
-                if st.button("❌ Cancel Query", use_container_width=True, type="secondary", key=f"cancel_btn_{int(elapsed)}"):
+                if st.button("❌ Cancel Query", width="stretch", type="secondary", key=f"cancel_btn_{int(elapsed)}"):
                     st.session_state.bg_task['cancelled'] = True
                     st.session_state.bg_task['cancel_start_time'] = time.time()
                     # Interrupt the running query if connection exists
@@ -1029,8 +1034,10 @@ def main():
                             st.session_state.bg_task['interrupt_error'] = str(e)
                     st.rerun()
 
-            # Poll again after 2 seconds (reduced frequency to minimize flickering)
-            time.sleep(2.0)
+            st.caption("💡 Updates every 4 seconds")
+
+            # Poll again after 4 seconds (reduced frequency to minimize flickering)
+            time.sleep(4.0)
             st.rerun()
 
         else:
