@@ -64,9 +64,7 @@ if 'confirm_clear_results' not in st.session_state:
 if 'show_export_dialog' not in st.session_state:
     st.session_state.show_export_dialog = False
 
-# Category refresh tracking
-if 'refresh_categories' not in st.session_state:
-    st.session_state.refresh_categories = False
+# Category loading tracking
 if 'dynamic_categories' not in st.session_state:
     st.session_state.dynamic_categories = None
 if 'categories_auto_loaded' not in st.session_state:
@@ -171,11 +169,6 @@ def render_sidebar():
         st.sidebar.caption(f"✓ {len(selected_categories)} {'category' if len(selected_categories) == 1 else 'categories'} selected")
     else:
         st.sidebar.warning("⚠️ No categories selected")
-
-    # Refresh categories button
-    if st.sidebar.button("🔄 Refresh Categories from Overture", help="Fetch latest categories from Overture Maps data", disabled=st.session_state.query_running):
-        st.session_state.refresh_categories = True
-        st.rerun()
 
     st.sidebar.divider()
 
@@ -997,21 +990,21 @@ def main():
 
     # Auto-load categories from Overture Maps on first session
     if not st.session_state.categories_auto_loaded:
-        with st.spinner("Loading categories from Overture Maps..."):
-            categories = fetch_categories_from_s3()
-            st.session_state.dynamic_categories = categories
-            st.session_state.categories_auto_loaded = True
-            st.rerun()
+        # Show loading banner
+        st.info("🔄 **Loading live categories from Overture Maps...** Please wait while we fetch the latest place categories.", icon="ℹ️")
 
-    # Handle category refresh if triggered
-    if st.session_state.refresh_categories:
-        with st.spinner("Refreshing categories from Overture Maps..."):
-            categories = fetch_categories_from_s3()
-            st.session_state.dynamic_categories = categories
-            st.session_state.refresh_categories = False
-            st.success(f"✅ Loaded {len(categories)} categories from Overture Maps")
-            time.sleep(1)  # Brief pause to show success message
-            st.rerun()
+        # Progress indicator
+        progress_placeholder = st.empty()
+        with progress_placeholder:
+            with st.spinner("Connecting to Overture Maps S3 data..."):
+                categories = fetch_categories_from_s3()
+                st.session_state.dynamic_categories = categories
+                st.session_state.categories_auto_loaded = True
+
+        # Show success message briefly
+        progress_placeholder.success(f"✅ Loaded {len(categories)} categories from Overture Maps!")
+        time.sleep(1.5)
+        st.rerun()
 
     # Render sidebar and get parameters
     params = render_sidebar()
