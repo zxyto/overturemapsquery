@@ -171,7 +171,7 @@ def render_sidebar():
         st.sidebar.warning("⚠️ No categories selected")
 
     # Refresh categories button
-    if st.sidebar.button("🔄 Refresh from Overture", help="Fetch latest categories from Overture Maps data", disabled=st.session_state.query_running):
+    if st.sidebar.button("🔄 Refresh Categories from Overture", help="Fetch latest categories from Overture Maps data", disabled=st.session_state.query_running):
         st.session_state.refresh_categories = True
         st.rerun()
 
