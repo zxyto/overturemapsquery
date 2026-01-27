@@ -287,21 +287,20 @@ def fetch_categories_from_s3():
     try:
         db_manager = get_db_manager()
         release_version = st.session_state.get('overture_release', OVERTURE_CONFIG['release'])
+        con = db_manager.get_connection()
 
-        # Create view if not exists
-        if not db_manager._view_created or db_manager._current_release != release_version:
-            db_manager.create_places_view(release_version)
+        # Query directly from S3 parquet files (don't rely on view)
+        s3_path = f"s3://overturemaps-us-west-2/release/{release_version}/theme=places/type=place/*"
 
         # Query for distinct categories (limit to 1000 samples for speed)
-        category_query = """
+        category_query = f"""
         SELECT DISTINCT
             JSON_EXTRACT_STRING(categories, 'primary') as category
-        FROM places_view
+        FROM read_parquet('{s3_path}', filename=true, hive_partitioning=1)
         WHERE JSON_EXTRACT_STRING(categories, 'primary') IS NOT NULL
         LIMIT 1000
         """
 
-        con = db_manager.get_connection()
         result = con.execute(category_query).fetchdf()
 
         if not result.empty and 'category' in result.columns:
@@ -310,7 +309,7 @@ def fetch_categories_from_s3():
         else:
             return COMMON_CATEGORIES
     except Exception as e:
-        st.error(f"Failed to fetch categories: {str(e)}")
+        st.warning(f"Could not fetch categories from Overture Maps: {str(e)}")
         return COMMON_CATEGORIES
 
 
@@ -1007,35 +1006,9 @@ def main():
     # Render sidebar and get parameters
     params = render_sidebar()
 
-    # Add CSS to make sidebar buttons more visible with sticky positioning
-    st.markdown("""
-    <style>
-    /* Make sidebar scrollable with fixed button area */
-    section[data-testid="stSidebar"] > div {
-        padding-bottom: 140px !important;
-    }
-
-    /* Sticky footer for execute button */
-    .element-container:has(.stButton) {
-        position: sticky;
-        bottom: 0;
-        background: var(--background-color);
-        padding-top: 1rem;
-        padding-bottom: 0.5rem;
-        border-top: 1px solid rgba(250, 250, 250, 0.2);
-        z-index: 100;
-    }
-
-    /* Fix for sidebar sticky container */
-    div[data-testid="stSidebarContent"] {
-        overflow-y: auto;
-        padding-bottom: 120px;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
     # Execute/Cancel buttons section with visual separator
     st.sidebar.markdown("---")
+    st.sidebar.markdown("### 🎯 Ready to Search")
 
     # Show helpful message based on state
     if not params.get('categories'):
@@ -1043,22 +1016,21 @@ def main():
         execute_button = False
     else:
         if st.session_state.query_running:
-            # Show Execute (disabled) and Cancel buttons side by side
+            # Show status and cancel button when running
+            st.sidebar.info("Query in progress...", icon="⏳")
             col_exec, col_cancel = st.sidebar.columns(2)
             with col_exec:
                 st.button(
-                    "🔍 Executing...",
+                    "⏳ Running...",
                     type="primary",
                     disabled=True,
                     use_container_width=True,
                     key="exec_disabled_btn"
                 )
             with col_cancel:
-                # Cancel button
-                if st.button("❌ Cancel", use_container_width=True, type="secondary", key="cancel_btn_footer"):
+                if st.button("❌ Cancel", use_container_width=True, key="cancel_btn_footer"):
                     st.session_state.bg_task['cancelled'] = True
                     st.session_state.bg_task['cancel_start_time'] = time.time()
-                    # Interrupt the running query if connection exists
                     if 'connection' in st.session_state.bg_task:
                         try:
                             st.session_state.bg_task['connection'].interrupt()
@@ -1068,6 +1040,7 @@ def main():
                     st.rerun()
             execute_button = False
         else:
+            # Show execute button
             execute_button = st.sidebar.button(
                 "🔍 Execute Query",
                 type="primary",
@@ -1078,7 +1051,7 @@ def main():
 
             # Show clear results button if results exist
             if st.session_state.query_executed and st.session_state.query_results is not None:
-                if st.sidebar.button("🗑️ Clear Results", use_container_width=True, key="clear_results_footer"):
+                if st.sidebar.button("🗑️ Clear Results", use_container_width=True, key="clear_results_btn"):
                     st.session_state.query_results = None
                     st.session_state.query_executed = False
                     st.rerun()
