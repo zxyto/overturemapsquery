@@ -958,31 +958,77 @@ def main():
     # Render sidebar and get parameters
     params = render_sidebar()
 
-    # Execute query button
-    st.sidebar.divider()
+    # Sticky footer for Execute/Cancel buttons using custom CSS
+    st.sidebar.markdown("""
+    <style>
+    /* Create sticky footer for execute button */
+    [data-testid="stSidebar"] > div:first-child {
+        padding-bottom: 120px;
+    }
+    .sticky-execute-footer {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        width: var(--sidebar-width, 21rem);
+        background-color: var(--background-color);
+        padding: 1rem;
+        border-top: 1px solid rgba(128, 128, 128, 0.2);
+        z-index: 999;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
-    # Show helpful message based on state
-    if not params.get('categories'):
-        st.sidebar.error("⚠️ Select at least one category")
-        execute_button = False
-    else:
-        if st.session_state.query_running:
-            st.sidebar.info("⏳ Query in progress... Please wait")
+    # Create sticky footer container
+    footer_container = st.sidebar.container()
+
+    with footer_container:
+        st.markdown('<div class="sticky-execute-footer">', unsafe_allow_html=True)
+
+        # Show helpful message based on state
+        if not params.get('categories'):
+            st.error("⚠️ Select at least one category", icon="⚠️")
             execute_button = False
         else:
-            execute_button = st.sidebar.button(
-                "🔍 Execute Query",
-                type="primary",
-                use_container_width=True,
-                help="Run query with current filters"
-            )
+            if st.session_state.query_running:
+                # Show Execute (disabled) and Cancel buttons side by side
+                col_exec, col_cancel = st.columns(2)
+                with col_exec:
+                    st.button(
+                        "🔍 Executing...",
+                        type="primary",
+                        disabled=True,
+                        use_container_width=True
+                    )
+                with col_cancel:
+                    # Cancel button in sticky footer
+                    if st.button("❌ Cancel", use_container_width=True, type="secondary", key="cancel_btn_footer"):
+                        st.session_state.bg_task['cancelled'] = True
+                        st.session_state.bg_task['cancel_start_time'] = time.time()
+                        # Interrupt the running query if connection exists
+                        if 'connection' in st.session_state.bg_task:
+                            try:
+                                st.session_state.bg_task['connection'].interrupt()
+                                st.session_state.bg_task['interrupt_called'] = True
+                            except Exception as e:
+                                st.session_state.bg_task['interrupt_error'] = str(e)
+                        st.rerun()
+                execute_button = False
+            else:
+                execute_button = st.button(
+                    "🔍 Execute Query",
+                    type="primary",
+                    use_container_width=True,
+                    help="Run query with current filters"
+                )
 
-            # Show clear results button if results exist
-            if st.session_state.query_executed and st.session_state.query_results is not None:
-                if st.sidebar.button("🗑️ Clear Results", use_container_width=True):
-                    st.session_state.query_results = None
-                    st.session_state.query_executed = False
-                    st.rerun()
+                # Show clear results button if results exist
+                if st.session_state.query_executed and st.session_state.query_results is not None:
+                    if st.button("🗑️ Clear Results", use_container_width=True, key="clear_results_footer"):
+                        st.session_state.query_results = None
+                        st.session_state.query_executed = False
+                        st.rerun()
+
+        st.markdown('</div>', unsafe_allow_html=True)
 
     # Main content area
     if execute_button:
@@ -1084,22 +1130,7 @@ def main():
                 with st.expander("📋 View SQL Query"):
                     st.code(st.session_state.bg_task['query'], language="sql")
 
-            # Cancel button
-            col_cancel1, col_cancel2, col_cancel3 = st.columns([1, 1, 1])
-            with col_cancel2:
-                if st.button("❌ Cancel Query", width="stretch", type="secondary", key=f"cancel_btn_{int(elapsed)}"):
-                    st.session_state.bg_task['cancelled'] = True
-                    st.session_state.bg_task['cancel_start_time'] = time.time()
-                    # Interrupt the running query if connection exists
-                    if 'connection' in st.session_state.bg_task:
-                        try:
-                            st.session_state.bg_task['connection'].interrupt()
-                            st.session_state.bg_task['interrupt_called'] = True
-                        except Exception as e:
-                            st.session_state.bg_task['interrupt_error'] = str(e)
-                    st.rerun()
-
-            st.caption("💡 Updates every 4 seconds")
+            st.caption("💡 Updates every 4 seconds • Use Cancel button in sidebar to stop")
 
             # Poll again after 4 seconds (reduced frequency to minimize flickering)
             time.sleep(4.0)
@@ -1126,9 +1157,22 @@ def main():
 
             # Check for errors
             if st.session_state.bg_task['error']:
+                # Save error info before resetting
+                elapsed = time.time() - st.session_state.bg_task['start_time']
+                error_msg = st.session_state.bg_task['error']
+
+                # Reset task state first to clear "query in progress" message
+                st.session_state.bg_task = {
+                    'thread': None,
+                    'status': 'idle',
+                    'results': None,
+                    'error': None,
+                    'start_time': None,
+                    'cancelled': False
+                }
+
                 # Handle no results specially
-                if st.session_state.bg_task['error'] == 'no_results':
-                    elapsed = time.time() - st.session_state.bg_task['start_time']
+                if error_msg == 'no_results':
                     st.warning(f"""
                     **ℹ️ No Results Found** ({elapsed:.1f}s)
 
@@ -1142,18 +1186,10 @@ def main():
                     """)
                 else:
                     # Regular error
-                    st.error(f"❌ Query failed: {st.session_state.bg_task['error']}")
+                    st.error(f"❌ Query failed: {error_msg}")
 
-                # Reset task state but don't st.stop() so user can adjust filters
-                st.session_state.bg_task = {
-                    'thread': None,
-                    'status': 'idle',
-                    'results': None,
-                    'error': None,
-                    'start_time': None,
-                    'cancelled': False
-                }
-                st.stop()
+                # Rerun to update sidebar state (instead of st.stop())
+                st.rerun()
 
             # Success - store results
             results = st.session_state.bg_task['results']
