@@ -69,6 +69,8 @@ if 'refresh_categories' not in st.session_state:
     st.session_state.refresh_categories = False
 if 'dynamic_categories' not in st.session_state:
     st.session_state.dynamic_categories = None
+if 'categories_auto_loaded' not in st.session_state:
+    st.session_state.categories_auto_loaded = False
 
 
 def render_header():
@@ -993,9 +995,17 @@ def main():
     # Render header
     render_header()
 
+    # Auto-load categories from Overture Maps on first session
+    if not st.session_state.categories_auto_loaded:
+        with st.spinner("Loading categories from Overture Maps..."):
+            categories = fetch_categories_from_s3()
+            st.session_state.dynamic_categories = categories
+            st.session_state.categories_auto_loaded = True
+            st.rerun()
+
     # Handle category refresh if triggered
     if st.session_state.refresh_categories:
-        with st.spinner("Fetching categories from Overture Maps..."):
+        with st.spinner("Refreshing categories from Overture Maps..."):
             categories = fetch_categories_from_s3()
             st.session_state.dynamic_categories = categories
             st.session_state.refresh_categories = False
