@@ -171,7 +171,7 @@ def render_sidebar():
         st.sidebar.warning("⚠️ No categories selected")
 
     # Refresh categories button
-    if st.sidebar.button("🔄 Refresh Categories from S3", help="Query Overture Maps for available categories", disabled=st.session_state.query_running):
+    if st.sidebar.button("🔄 Refresh from Overture", help="Fetch latest categories from Overture Maps data", disabled=st.session_state.query_running):
         st.session_state.refresh_categories = True
         st.rerun()
 
@@ -951,7 +951,7 @@ def main():
             categories = fetch_categories_from_s3()
             st.session_state.dynamic_categories = categories
             st.session_state.refresh_categories = False
-            st.success(f"✅ Loaded {len(categories)} categories from S3")
+            st.success(f"✅ Loaded {len(categories)} categories from Overture Maps")
             time.sleep(1)  # Brief pause to show success message
             st.rerun()
 
