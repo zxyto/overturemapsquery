@@ -978,10 +978,6 @@ def main():
                     'start_time': None,
                     'cancelled': False
                 }
-                # Clean up containers
-                for key in ['progress_container', 'status_container', 'cancel_container', 'query_container', 'tip_container']:
-                    if key in st.session_state:
-                        del st.session_state[key]
                 st.rerun()
 
             # Show cancelling message
@@ -1002,63 +998,44 @@ def main():
             elapsed = time.time() - st.session_state.bg_task['start_time']
             current_status = st.session_state.bg_task['status']
 
-            # Create persistent containers to avoid fade effect
-            if 'progress_container' not in st.session_state:
-                st.session_state.progress_container = st.empty()
-                st.session_state.status_container = st.empty()
-                st.session_state.cancel_container = st.empty()
-                st.session_state.query_container = st.empty()
-                st.session_state.tip_container = st.empty()
-
-            # Update progress in container
-            with st.session_state.progress_container.container():
-                st.markdown("### 🔄 Query in Progress")
+            # Use st.status for better update handling (reduces flickering)
+            with st.status(f"🔄 Query Running ({elapsed:.1f}s)", expanded=True):
+                # Progress bar
                 progress_value = min(elapsed / 60.0, 0.95)
-                st.progress(progress_value, text=f"⏱️ Elapsed: {elapsed:.1f}s")
+                st.progress(progress_value)
 
-            # Update status
-            with st.session_state.status_container.container():
-                st.info(f"**Status:** {current_status}")
+                # Status message
+                st.write(f"**Status:** {current_status}")
 
-            # Cancel button
-            with st.session_state.cancel_container.container():
-                col_cancel1, col_cancel2, col_cancel3 = st.columns([1, 1, 1])
-                with col_cancel2:
-                    # Simple button that sets flag and immediately reruns
-                    if st.button("❌ Cancel Query", use_container_width=True, type="secondary", key=f"cancel_btn_{int(elapsed)}"):
-                        st.session_state.bg_task['cancelled'] = True
-                        st.session_state.bg_task['cancel_start_time'] = time.time()
-                        # Interrupt the running query if connection exists
-                        if 'connection' in st.session_state.bg_task:
-                            try:
-                                st.session_state.bg_task['connection'].interrupt()
-                                st.session_state.bg_task['interrupt_called'] = True
-                            except Exception as e:
-                                st.session_state.bg_task['interrupt_error'] = str(e)
-                        st.rerun()
-
-            # Show query details
-            with st.session_state.query_container.container():
+                # Show query if available
                 if st.session_state.bg_task.get('query'):
                     with st.expander("📋 View SQL Query"):
                         st.code(st.session_state.bg_task['query'], language="sql")
 
-            # Helpful tip
-            with st.session_state.tip_container.container():
-                st.caption("💡 The query is running in the background. Status updates every second.")
+                st.caption("💡 Updates every 2 seconds. Click cancel button below to stop.")
 
-            # Poll again after 1 second
-            time.sleep(1.0)
+            # Cancel button (outside status widget)
+            col_cancel1, col_cancel2, col_cancel3 = st.columns([1, 1, 1])
+            with col_cancel2:
+                if st.button("❌ Cancel Query", use_container_width=True, type="secondary", key=f"cancel_btn_{int(elapsed)}"):
+                    st.session_state.bg_task['cancelled'] = True
+                    st.session_state.bg_task['cancel_start_time'] = time.time()
+                    # Interrupt the running query if connection exists
+                    if 'connection' in st.session_state.bg_task:
+                        try:
+                            st.session_state.bg_task['connection'].interrupt()
+                            st.session_state.bg_task['interrupt_called'] = True
+                        except Exception as e:
+                            st.session_state.bg_task['interrupt_error'] = str(e)
+                    st.rerun()
+
+            # Poll again after 2 seconds (reduced frequency to minimize flickering)
+            time.sleep(2.0)
             st.rerun()
 
         else:
             # Thread finished - process results
             st.session_state.query_running = False
-
-            # Clean up progress containers
-            for key in ['progress_container', 'status_container', 'cancel_container', 'query_container', 'tip_container']:
-                if key in st.session_state:
-                    del st.session_state[key]
 
             # Check if cancelled
             if st.session_state.bg_task.get('cancelled', False):
