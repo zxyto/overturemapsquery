@@ -310,12 +310,16 @@ Deploy Docker container to:
 
 Bounding box queries use optimized spatial predicates (`ST_Within`) for **66-75% faster performance** compared to metadata-based filtering. This makes map searches and custom bounding boxes very efficient.
 
+**How it works:**
+- Uses `ST_Within(geometry, ST_MakeEnvelope(...))` for efficient spatial filtering
+- Single optimized spatial operation instead of 4 metadata comparisons
+- Enables DuckDB spatial index usage for faster lookups
+- Follows OGC standards for spatial predicates
+
 **Typical Query Times:**
 - Small area (0.1° x 0.1°): 5-8 seconds
 - Medium area (1° x 1°): 12-18 seconds
 - Large area (10° x 10°): 30-40 seconds
-
-See [PERFORMANCE.md](PERFORMANCE.md) for detailed optimization information.
 
 ### Performance Tips
 
@@ -381,13 +385,23 @@ If queries get stuck on "Executing query on S3 data...":
 - **First Query**: May take 30-60s for S3 cold start (view creation)
 - **Large Bounding Boxes**: Queries for entire states can take 60-120s
 - **Check SQL Query**: Expand "View SQL Query" to see what's being executed
-- **Try Count First**: The app now shows result count before fetching data
+
+**What's Normal vs Too Slow:**
+- ✅ Normal: First query 30-40s, subsequent queries 10-20s for medium area
+- ✅ Normal: Small areas (0.1° x 0.1°) take 5-10s
+- ❌ Too Slow: Small area taking > 20s consistently
+- ❌ Too Slow: Same query still takes 30+ seconds when repeated
 
 **For faster queries:**
 - Add more specific filters (state + categories)
 - Reduce the result limit
 - Use smaller bounding boxes
 - Use specific categories instead of "all categories"
+
+**Common Issues:**
+- **Slow first query**: Normal - DuckDB is loading from S3 (cold start)
+- **All queries slow**: Check network latency to AWS us-west-2, or try smaller areas
+- **Large bbox slow**: Expected - more data to scan. Use map search for focused queries
 
 ### Export Failures
 
