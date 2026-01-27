@@ -64,6 +64,12 @@ if 'confirm_clear_results' not in st.session_state:
 if 'show_export_dialog' not in st.session_state:
     st.session_state.show_export_dialog = False
 
+# Category refresh tracking
+if 'refresh_categories' not in st.session_state:
+    st.session_state.refresh_categories = False
+if 'dynamic_categories' not in st.session_state:
+    st.session_state.dynamic_categories = None
+
 
 def render_header():
     """Render application header"""
@@ -145,31 +151,18 @@ def render_sidebar():
     # Category selection
     st.sidebar.subheader("📍 Place Categories")
 
-    # Multiselect for common categories
+    # Use dynamic categories if available, otherwise use default
+    available_categories = st.session_state.dynamic_categories if st.session_state.dynamic_categories else COMMON_CATEGORIES
+
+    # Multiselect for categories
     default_categories = DEFAULT_SETTINGS['categories']
     selected_categories = st.sidebar.multiselect(
         "Select Categories",
-        options=COMMON_CATEGORIES,
-        default=default_categories,
+        options=available_categories,
+        default=default_categories if not st.session_state.dynamic_categories else [],
         help="Choose one or more place categories to search for",
         disabled=st.session_state.query_running
     )
-
-    # Custom category input
-    with st.sidebar.expander("➕ Add Custom Category"):
-        st.caption("Enter custom category names (e.g., 'coffee_shop', 'bike_rental')")
-        custom_category = st.text_input(
-            "Category Name",
-            help="Enter a custom category name from Overture Maps schema",
-            disabled=st.session_state.query_running
-        )
-        if st.button("Add Category", disabled=st.session_state.query_running) and custom_category:
-            sanitized = InputValidator.sanitize_category_name(custom_category)
-            if sanitized not in selected_categories:
-                selected_categories.append(sanitized)
-                st.success(f"✓ Added: {sanitized}")
-            else:
-                st.info(f"Already selected: {sanitized}")
 
     # Display selected categories count
     if selected_categories:
@@ -177,28 +170,37 @@ def render_sidebar():
     else:
         st.sidebar.warning("⚠️ No categories selected")
 
+    # Refresh categories button
+    if st.sidebar.button("🔄 Refresh Categories from S3", help="Query Overture Maps for available categories", disabled=st.session_state.query_running):
+        st.session_state.refresh_categories = True
+        st.rerun()
+
+    st.sidebar.divider()
+
+    # Limit results (moved from Advanced Options for visibility)
+    st.sidebar.subheader("🔢 Results Limit")
+    enable_limit = st.sidebar.checkbox(
+        "Limit Results",
+        value=True,
+        disabled=st.session_state.query_running,
+        help="Limit the maximum number of results returned"
+    )
+    limit = None
+    if enable_limit:
+        limit = st.sidebar.number_input(
+            "Maximum Results",
+            min_value=1,
+            max_value=1000000,
+            value=DEFAULT_SETTINGS['limit'],
+            step=100,
+            help="Set maximum number of results to return",
+            disabled=st.session_state.query_running
+        )
+
     st.sidebar.divider()
 
     # Advanced options
     with st.sidebar.expander("⚙️ Advanced Options"):
-        enable_limit = st.checkbox(
-            "Limit Results",
-            value=True,
-            disabled=st.session_state.query_running
-        )
-        limit = None
-        if enable_limit:
-            limit = st.number_input(
-                "Maximum Results",
-                min_value=1,
-                max_value=1000000,
-                value=DEFAULT_SETTINGS['limit'],
-                step=100,
-                help="Limit the number of results returned",
-                disabled=st.session_state.query_running
-            )
-
-        st.markdown("---")
         st.markdown("**Data Source Configuration**")
 
         # Initialize session state for custom release
@@ -273,6 +275,43 @@ def validate_inputs(params):
             errors.append(msg)
 
     return len(errors) == 0, errors
+
+
+def fetch_categories_from_s3():
+    """
+    Fetch available categories from Overture Maps S3 data
+
+    Returns:
+        list: List of unique categories from the dataset
+    """
+    try:
+        db_manager = get_db_manager()
+        release_version = st.session_state.get('overture_release', OVERTURE_CONFIG['release'])
+
+        # Create view if not exists
+        if not db_manager._view_created or db_manager._current_release != release_version:
+            db_manager.create_places_view(release_version)
+
+        # Query for distinct categories (limit to 1000 samples for speed)
+        category_query = """
+        SELECT DISTINCT
+            JSON_EXTRACT_STRING(categories, 'primary') as category
+        FROM places_view
+        WHERE JSON_EXTRACT_STRING(categories, 'primary') IS NOT NULL
+        LIMIT 1000
+        """
+
+        con = db_manager.get_connection()
+        result = con.execute(category_query).fetchdf()
+
+        if not result.empty and 'category' in result.columns:
+            categories = sorted(result['category'].dropna().unique().tolist())
+            return categories
+        else:
+            return COMMON_CATEGORIES
+    except Exception as e:
+        st.error(f"Failed to fetch categories: {str(e)}")
+        return COMMON_CATEGORIES
 
 
 def execute_query(params, status_container=None):
@@ -770,16 +809,24 @@ def render_map(df):
     if len(df_map) > max_points:
         st.info(f"Showing first {max_points:,} of {len(df_map):,} points on map")
 
-    # Calculate map center
+    # Calculate map center and bounds
     center_lat = df_display['latitude'].mean()
     center_lon = df_display['longitude'].mean()
+
+    # Get bounding box for all points
+    min_lat = df_display['latitude'].min()
+    max_lat = df_display['latitude'].max()
+    min_lon = df_display['longitude'].min()
+    max_lon = df_display['longitude'].max()
 
     # Create Folium map
     m = folium.Map(
         location=[center_lat, center_lon],
-        zoom_start=10,
         tiles='OpenStreetMap'
     )
+
+    # Fit map to show all points
+    m.fit_bounds([[min_lat, min_lon], [max_lat, max_lon]], padding=[30, 30])
 
     # Define color mapping for categories
     unique_categories = df_display['category'].unique()
@@ -897,6 +944,16 @@ def main():
 
     # Render header
     render_header()
+
+    # Handle category refresh if triggered
+    if st.session_state.refresh_categories:
+        with st.spinner("Fetching categories from Overture Maps..."):
+            categories = fetch_categories_from_s3()
+            st.session_state.dynamic_categories = categories
+            st.session_state.refresh_categories = False
+            st.success(f"✅ Loaded {len(categories)} categories from S3")
+            time.sleep(1)  # Brief pause to show success message
+            st.rerun()
 
     # Render sidebar and get parameters
     params = render_sidebar()
