@@ -784,6 +784,52 @@ def render_map_search_interface():
     return st.session_state.map_bounds
 
 
+def calculate_zoom_level(min_lat, max_lat, min_lon, max_lon):
+    """
+    Calculate appropriate zoom level based on bounding box size
+
+    Args:
+        min_lat, max_lat, min_lon, max_lon: Bounding box coordinates
+
+    Returns:
+        int: Appropriate zoom level (1-18)
+    """
+    # Calculate the span in degrees
+    lat_span = abs(max_lat - min_lat)
+    lon_span = abs(max_lon - min_lon)
+
+    # Use the larger span to determine zoom
+    max_span = max(lat_span, lon_span)
+
+    # Map span to zoom level (approximate)
+    if max_span > 50:
+        return 4
+    elif max_span > 20:
+        return 5
+    elif max_span > 10:
+        return 6
+    elif max_span > 5:
+        return 7
+    elif max_span > 2:
+        return 8
+    elif max_span > 1:
+        return 9
+    elif max_span > 0.5:
+        return 10
+    elif max_span > 0.2:
+        return 11
+    elif max_span > 0.1:
+        return 12
+    elif max_span > 0.05:
+        return 13
+    elif max_span > 0.02:
+        return 14
+    elif max_span > 0.01:
+        return 15
+    else:
+        return 16
+
+
 def render_map(df):
     """
     Render interactive map with results using Folium
@@ -821,14 +867,15 @@ def render_map(df):
     min_lon = df_display['longitude'].min()
     max_lon = df_display['longitude'].max()
 
-    # Create Folium map
+    # Calculate appropriate zoom level based on data extent
+    zoom_level = calculate_zoom_level(min_lat, max_lat, min_lon, max_lon)
+
+    # Create Folium map with calculated zoom (instead of fit_bounds)
     m = folium.Map(
         location=[center_lat, center_lon],
-        tiles='OpenStreetMap'
+        tiles='OpenStreetMap',
+        zoom_start=zoom_level
     )
-
-    # Fit map to show all points
-    m.fit_bounds([[min_lat, min_lon], [max_lat, max_lon]], padding=[30, 30])
 
     # Define color mapping for categories
     unique_categories = df_display['category'].unique()
