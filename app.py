@@ -562,24 +562,26 @@ def render_results(df):
 
     st.divider()
 
-    # Data table with export button
-    col_table1, col_table2 = st.columns([3, 1])
-    with col_table1:
-        st.subheader("Results Table")
-    with col_table2:
-        st.write("")  # Spacer for alignment
-        if st.button("📥 Export Data", type="primary", width="stretch", key="export_btn_top"):
+    # Export button at top
+    col_export1, col_export2, col_export3 = st.columns([2, 1, 2])
+    with col_export2:
+        if st.button("📥 Export Data", type="primary", use_container_width=True, key="export_btn_top"):
             st.session_state.show_export_dialog = True
 
-    st.dataframe(
-        df,
-        use_container_width=True,
-        height=400
-    )
-
-    # Map view
     st.divider()
-    render_map(df)
+
+    # Tabs for Table and Map views (better for small screens)
+    tab1, tab2 = st.tabs(["📊 Data Table", "🗺️ Map View"])
+
+    with tab1:
+        st.dataframe(
+            df,
+            use_container_width=True,
+            height=500
+        )
+
+    with tab2:
+        render_map(df)
 
 
 def render_map_search_interface():
@@ -958,77 +960,81 @@ def main():
     # Render sidebar and get parameters
     params = render_sidebar()
 
-    # Sticky footer for Execute/Cancel buttons using custom CSS
-    st.sidebar.markdown("""
+    # Add CSS to make sidebar buttons more visible with sticky positioning
+    st.markdown("""
     <style>
-    /* Create sticky footer for execute button */
-    [data-testid="stSidebar"] > div:first-child {
-        padding-bottom: 120px;
+    /* Make sidebar scrollable with fixed button area */
+    section[data-testid="stSidebar"] > div {
+        padding-bottom: 140px !important;
     }
-    .sticky-execute-footer {
-        position: fixed;
+
+    /* Sticky footer for execute button */
+    .element-container:has(.stButton) {
+        position: sticky;
         bottom: 0;
-        left: 0;
-        width: var(--sidebar-width, 21rem);
-        background-color: var(--background-color);
-        padding: 1rem;
-        border-top: 1px solid rgba(128, 128, 128, 0.2);
-        z-index: 999;
+        background: var(--background-color);
+        padding-top: 1rem;
+        padding-bottom: 0.5rem;
+        border-top: 1px solid rgba(250, 250, 250, 0.2);
+        z-index: 100;
+    }
+
+    /* Fix for sidebar sticky container */
+    div[data-testid="stSidebarContent"] {
+        overflow-y: auto;
+        padding-bottom: 120px;
     }
     </style>
     """, unsafe_allow_html=True)
 
-    # Create sticky footer container
-    footer_container = st.sidebar.container()
+    # Execute/Cancel buttons section with visual separator
+    st.sidebar.markdown("---")
 
-    with footer_container:
-        st.markdown('<div class="sticky-execute-footer">', unsafe_allow_html=True)
-
-        # Show helpful message based on state
-        if not params.get('categories'):
-            st.error("⚠️ Select at least one category", icon="⚠️")
+    # Show helpful message based on state
+    if not params.get('categories'):
+        st.sidebar.error("⚠️ Select at least one category", icon="⚠️")
+        execute_button = False
+    else:
+        if st.session_state.query_running:
+            # Show Execute (disabled) and Cancel buttons side by side
+            col_exec, col_cancel = st.sidebar.columns(2)
+            with col_exec:
+                st.button(
+                    "🔍 Executing...",
+                    type="primary",
+                    disabled=True,
+                    use_container_width=True,
+                    key="exec_disabled_btn"
+                )
+            with col_cancel:
+                # Cancel button
+                if st.button("❌ Cancel", use_container_width=True, type="secondary", key="cancel_btn_footer"):
+                    st.session_state.bg_task['cancelled'] = True
+                    st.session_state.bg_task['cancel_start_time'] = time.time()
+                    # Interrupt the running query if connection exists
+                    if 'connection' in st.session_state.bg_task:
+                        try:
+                            st.session_state.bg_task['connection'].interrupt()
+                            st.session_state.bg_task['interrupt_called'] = True
+                        except Exception as e:
+                            st.session_state.bg_task['interrupt_error'] = str(e)
+                    st.rerun()
             execute_button = False
         else:
-            if st.session_state.query_running:
-                # Show Execute (disabled) and Cancel buttons side by side
-                col_exec, col_cancel = st.columns(2)
-                with col_exec:
-                    st.button(
-                        "🔍 Executing...",
-                        type="primary",
-                        disabled=True,
-                        use_container_width=True
-                    )
-                with col_cancel:
-                    # Cancel button in sticky footer
-                    if st.button("❌ Cancel", use_container_width=True, type="secondary", key="cancel_btn_footer"):
-                        st.session_state.bg_task['cancelled'] = True
-                        st.session_state.bg_task['cancel_start_time'] = time.time()
-                        # Interrupt the running query if connection exists
-                        if 'connection' in st.session_state.bg_task:
-                            try:
-                                st.session_state.bg_task['connection'].interrupt()
-                                st.session_state.bg_task['interrupt_called'] = True
-                            except Exception as e:
-                                st.session_state.bg_task['interrupt_error'] = str(e)
-                        st.rerun()
-                execute_button = False
-            else:
-                execute_button = st.button(
-                    "🔍 Execute Query",
-                    type="primary",
-                    use_container_width=True,
-                    help="Run query with current filters"
-                )
+            execute_button = st.sidebar.button(
+                "🔍 Execute Query",
+                type="primary",
+                use_container_width=True,
+                help="Run query with current filters",
+                key="execute_query_btn"
+            )
 
-                # Show clear results button if results exist
-                if st.session_state.query_executed and st.session_state.query_results is not None:
-                    if st.button("🗑️ Clear Results", use_container_width=True, key="clear_results_footer"):
-                        st.session_state.query_results = None
-                        st.session_state.query_executed = False
-                        st.rerun()
-
-        st.markdown('</div>', unsafe_allow_html=True)
+            # Show clear results button if results exist
+            if st.session_state.query_executed and st.session_state.query_results is not None:
+                if st.sidebar.button("🗑️ Clear Results", use_container_width=True, key="clear_results_footer"):
+                    st.session_state.query_results = None
+                    st.session_state.query_executed = False
+                    st.rerun()
 
     # Main content area
     if execute_button:
