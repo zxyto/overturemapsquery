@@ -73,7 +73,7 @@ if 'categories_auto_loaded' not in st.session_state:
 
 def render_header():
     """Render application header"""
-    st.title("🗺️ Overture Maps Places Query Tool")
+    st.title("🗺️ Overture Maps US Places Query Tool")
 
     # Get current release version from session state or default
     current_release = st.session_state.get('overture_release', OVERTURE_CONFIG['release'])
