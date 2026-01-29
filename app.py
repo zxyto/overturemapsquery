@@ -855,6 +855,7 @@ def render_map(df):
         df (pd.DataFrame): Query results with lat/lon
     """
     st.subheader("Map View")
+    st.caption("Displaying up to 1,000 points for optimal performance")
 
     if df.empty or 'latitude' not in df.columns or 'longitude' not in df.columns:
         st.info("No location data available for mapping")
@@ -872,7 +873,7 @@ def render_map(df):
     df_display = df_map.head(max_points)
 
     if len(df_map) > max_points:
-        st.info(f"Showing first {max_points:,} of {len(df_map):,} points on map")
+        st.warning(f"⚠️ Showing first {max_points:,} of {len(df_map):,} points on map", icon="⚠️")
 
     # Calculate map center and bounds
     center_lat = df_display['latitude'].mean()
