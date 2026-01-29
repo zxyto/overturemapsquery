@@ -154,11 +154,30 @@ def render_sidebar():
     # Use dynamic categories if available, otherwise use default
     available_categories = st.session_state.dynamic_categories if st.session_state.dynamic_categories else COMMON_CATEGORIES
 
+    # Search box to filter categories
+    search_term = st.sidebar.text_input(
+        "🔍 Search categories",
+        placeholder="Type to filter (e.g., 'restaurant', 'hospital')",
+        disabled=st.session_state.query_running,
+        help="Filter the category list by typing keywords"
+    )
+
+    # Filter categories based on search term
+    if search_term:
+        filtered_categories = [cat for cat in available_categories if search_term.lower() in cat.lower()]
+        if filtered_categories:
+            st.sidebar.caption(f"Found {len(filtered_categories)} matching categories")
+        else:
+            st.sidebar.warning(f"No categories match '{search_term}'")
+            filtered_categories = available_categories
+    else:
+        filtered_categories = available_categories
+
     # Multiselect for categories
     default_categories = DEFAULT_SETTINGS['categories']
     selected_categories = st.sidebar.multiselect(
         "Select Categories",
-        options=available_categories,
+        options=filtered_categories,
         default=default_categories if not st.session_state.dynamic_categories else [],
         help="Choose one or more place categories to search for",
         disabled=st.session_state.query_running
