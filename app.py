@@ -272,39 +272,43 @@ def validate_inputs(params):
     return len(errors) == 0, errors
 
 
-def fetch_categories_from_s3():
+def fetch_categories_from_overture():
     """
-    Fetch available categories from Overture Maps S3 data
+    Fetch official list of categories from Overture Maps schema CSV
 
     Returns:
-        list: List of unique categories from the dataset
+        list: List of all official Overture Maps place categories (2000+)
     """
     try:
-        db_manager = get_db_manager()
-        release_version = st.session_state.get('overture_release', OVERTURE_CONFIG['release'])
-        con = db_manager.get_connection()
+        import requests
 
-        # Query directly from S3 parquet files (don't rely on view)
-        s3_path = f"s3://overturemaps-us-west-2/release/{release_version}/theme=places/type=place/*"
+        # Official Overture Maps categories CSV from schema repository
+        categories_url = "https://raw.githubusercontent.com/OvertureMaps/schema/main/docs/schema/concepts/by-theme/places/overture_categories.csv"
 
-        # Query for distinct categories (limit to 1000 samples for speed)
-        category_query = f"""
-        SELECT DISTINCT
-            JSON_EXTRACT_STRING(categories, 'primary') as category
-        FROM read_parquet('{s3_path}', filename=true, hive_partitioning=1)
-        WHERE JSON_EXTRACT_STRING(categories, 'primary') IS NOT NULL
-        LIMIT 1000
-        """
+        response = requests.get(categories_url, timeout=10)
+        response.raise_for_status()
 
-        result = con.execute(category_query).fetchdf()
+        # Parse CSV (semicolon-delimited, first column is category code)
+        lines = response.text.strip().split('\n')
+        categories = []
 
-        if not result.empty and 'category' in result.columns:
-            categories = sorted(result['category'].dropna().unique().tolist())
-            return categories
-        else:
-            return COMMON_CATEGORIES
+        for line in lines:
+            # Skip empty lines
+            if not line.strip():
+                continue
+            # Split by semicolon and take first column (category code)
+            parts = line.split(';')
+            if parts and parts[0].strip():
+                category = parts[0].strip()
+                categories.append(category)
+
+        # Remove duplicates and sort
+        categories = sorted(list(set(categories)))
+
+        return categories if categories else COMMON_CATEGORIES
+
     except Exception as e:
-        st.warning(f"Could not fetch categories from Overture Maps: {str(e)}")
+        st.warning(f"Could not fetch categories from Overture Maps schema: {str(e)}")
         return COMMON_CATEGORIES
 
 
@@ -996,13 +1000,13 @@ def main():
         # Progress indicator
         progress_placeholder = st.empty()
         with progress_placeholder:
-            with st.spinner("Connecting to Overture Maps S3 data..."):
-                categories = fetch_categories_from_s3()
+            with st.spinner("Downloading official category list from Overture Maps..."):
+                categories = fetch_categories_from_overture()
                 st.session_state.dynamic_categories = categories
                 st.session_state.categories_auto_loaded = True
 
         # Show success message briefly
-        progress_placeholder.success(f"✅ Loaded {len(categories)} categories from Overture Maps!")
+        progress_placeholder.success(f"✅ Loaded {len(categories)} official categories from Overture Maps!")
         time.sleep(1.5)
         st.rerun()
 
