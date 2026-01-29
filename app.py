@@ -69,6 +69,8 @@ if 'dynamic_categories' not in st.session_state:
     st.session_state.dynamic_categories = None
 if 'categories_auto_loaded' not in st.session_state:
     st.session_state.categories_auto_loaded = False
+if 'category_reset_counter' not in st.session_state:
+    st.session_state.category_reset_counter = 0
 
 
 def render_header():
@@ -180,7 +182,8 @@ def render_sidebar():
         options=filtered_categories,
         default=default_categories if not st.session_state.dynamic_categories else [],
         help="Choose one or more place categories to search for",
-        disabled=st.session_state.query_running
+        disabled=st.session_state.query_running,
+        key=f"category_multiselect_{st.session_state.category_reset_counter}"
     )
 
     # Display selected categories count
@@ -1081,6 +1084,7 @@ def main():
                 if st.sidebar.button("🗑️ Clear Results", use_container_width=True, key="clear_results_btn"):
                     st.session_state.query_results = None
                     st.session_state.query_executed = False
+                    st.session_state.category_reset_counter += 1  # Reset category selection
                     st.rerun()
 
     # Main content area
